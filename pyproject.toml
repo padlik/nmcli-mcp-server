@@ -1,0 +1,49 @@
+[project]
+name = "nmcli-mcp-server"
+version = "0.1.0"
+description = "MCP server exposing NetworkManager VPN operations as semantic, allowlisted tools"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2,<3",
+    "tomli; python_version < '3.11'",
+]
+
+[project.scripts]
+nmcli-mcp = "nmcli_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "vulture>=2.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nmcli_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: integration tests that require a Linux host with NetworkManager and WireGuard (run inside the Lima VM)",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# vulture_whitelist.py is a data file for the vulture dead-code scanner, never
+# imported: it intentionally references names as bare, undefined expressions.
+"vulture_whitelist.py" = ["B018", "F821"]
+
+[tool.vulture]
+# Dead-code analysis scope: first-party code only. The virtualenv holds
+# installed third-party packages; .agents/.claude/.opencode are gitignored
+# local agent tooling, not project code.
+exclude = [".venv", ".agents", ".claude", ".opencode"]

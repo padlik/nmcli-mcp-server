@@ -29,7 +29,7 @@ Boundary: the LLM's only inputs are VPN ids from config — it cannot reach nmcl
 ```
 src/nmcli_mcp/
 +------------------------------------------------------+
-| server.py   MCP layer (FastMCP): tool defs, results   |
+| server.py   MCP layer (MCPServer): tool defs, results   |
 |     |                                                |
 | config.py   TOML load, id->connection map, validate  |
 |     |                                                |
@@ -37,8 +37,8 @@ src/nmcli_mcp/
 |             idempotent connect, health-aware reconnect|
 |     |                     |                           |
 |     v                     v                           |
-| nmcli.py    fixed-argv    routing.py   `ip route get` |
-|             nmcli runner              probe->iface    |
+| nmcli.py    fixed-argv    routing.py   probe->iface    |
+|             nmcli + ip runner           (pure math)     |
 +------------------------------------------------------+
    tests/       unit: mocked exec (runs on Mac)
                 integration: real nmcli in Lima VM (-m integration)
@@ -85,13 +85,13 @@ No daemon, port, or systemd unit exists to deploy: the client owns the server's 
 
 ## Decisions
 
-1. **MCP layer**: Python MCP SDK `FastMCP` (`mcp.server.fastmcp.FastMCP`), stdio transport, tools return plain dicts (serialized as JSON content by the SDK). Console script `nmcli-mcp` = `nmcli_mcp.server:main`. Logging goes to **stderr only** (stdout is the protocol channel; one stray print corrupts the stream).
+1. **MCP layer**: Python MCP SDK high-level server — installed SDK is `mcp` 2.x, where the v1 `FastMCP` class was renamed to `MCPServer` (`mcp.server.mcpserver.MCPServer`); stdio transport, tools return plain dicts (serialized as JSON content by the SDK). Console script `nmcli-mcp` = `nmcli_mcp.server:main`. Logging goes to **stderr only** (stdout is the protocol channel; one stray print corrupts the stream).
 
 2. **Config** (`config.py`): TOML `[[vpn]]` tables with fields `id` (string, must match `^[a-z][a-z0-9-]*$`), `connection` (non-empty string, exact NM connection name), `expected_routes` (optional list of CIDR strings). Resolution: `$NMCLI_MCP_CONFIG` → `$XDG_CONFIG_HOME/nmcli-mcp-server/config.toml` → `~/.config/nmcli-mcp-server/config.toml`. Loaded and validated **once at startup**; failure = fail fast with the list of paths tried (no config-less mode). Validation errors (bad id regex, duplicate ids, unparseable routes) also fail fast at startup. Parsing uses stdlib `tomllib` with a `try/except ImportError: import tomli as tomllib` shim; dependency marker `tomli; python_version < '3.11'`.
 
 3. **nmcli adapter** (`nmcli.py`): all invocations use `asyncio.create_subprocess_exec` (never a shell) with fixed argv assembled from constants plus config-resolved values. Timeouts via `asyncio.wait_for`: 30s for nmcli operations, 5s for `ip route get`. Timeout → structured error dict (`ok: false, error: "timeout", ...`), never a hang. Parsing uses `nmcli -t -f <fields>` terse output; because `:` is the terse separator **and** connection names may contain `:`, fields are unescaped (nmcli escapes `:` as `\:` in terse values) before comparison — match on the unescaped connection name. Unknown VPN id → error dict listing available ids.
 
-4. **Route verification** (`routing.py`): per configured CIDR, derive a deterministic probe: first host address of the network (`ipaddress.ip_network(cidr).network_address + 1`) for prefixes up to /30; for /31 and /32 (no usable host range) probe the `network_address` itself. Run `ip route get <probe>` and parse the `dev <iface>` token. Route check passes iff the resolved interface equals the VPN's active interface. CIDRs are parsed with stdlib defaults (strict): host-bits-set entries (e.g. `10.8.0.5/24`) are invalid config and fail fast at startup, per decision 2.
+4. **Route verification** (`routing.py`): per configured CIDR, derive a deterministic probe: first host address of the network (`ipaddress.ip_network(cidr).network_address + 1`) for prefixes up to /30; for /31 and /32 (no usable host range) probe the `network_address` itself. Parse the `dev <iface>` token from `ip route get <probe>` output and pass the route check iff the resolved interface equals the VPN's active interface. Execution note: `routing.py` is pure probe math and parsing; the `ip route get` subprocess itself runs through the single subprocess adapter in `nmcli.py` (decision 3's single-adapter invariant), driven by `vpn.py`. CIDRs are parsed with stdlib defaults (strict): host-bits-set entries (e.g. `10.8.0.5/24`) are invalid config and fail fast at startup, per decision 2.
 
 5. **Orchestration** (`vpn.py`):
    - `vpn_status`: `nmcli -t -f NAME,TYPE,DEVICE connection show --active` → is the configured connection active, and on which device.
