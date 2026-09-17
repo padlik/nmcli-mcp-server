@@ -3,7 +3,7 @@
 MCP server exposing NetworkManager VPN operations (`nmcli`) as semantic, allowlisted tools.
 
 Instead of giving an LLM agent arbitrary shell access, this server exposes seven fixed
-tools — `vpn_connect("intetics")` instead of raw `nmcli`. All subprocess execution uses
+tools — `vpn_connect("somevpn")` instead of raw `nmcli`. All subprocess execution uses
 fixed-argument `create_subprocess_exec` (never a shell), and the only LLM-controlled
 input anywhere is a VPN id from a config-defined set.
 
@@ -68,8 +68,8 @@ Resolved at startup, in order (first match wins):
 
 ```toml
 [[vpn]]
-id = "intetics"                 # tool-facing id; must match ^[a-z][a-z0-9-]*$, unique
-connection = "Intetics VPN"     # exact NetworkManager connection name
+id = "somevpn"                 # tool-facing id; must match ^[a-z][a-z0-9-]*$, unique
+connection = "Somecomp VPN"     # exact NetworkManager connection name
 expected_routes = [             # optional; strict CIDRs (host bits rejected)
   "10.13.0.0/16",
   "10.12.0.0/16",
